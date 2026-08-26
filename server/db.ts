@@ -300,15 +300,24 @@ function createTables(db: DatabaseDriver) {
 }
 
 function seedDefaultAdmin(db: DatabaseDriver) {
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-  if (userCount && userCount.count === 0) {
-    const { hash, salt } = hashPassword('admin123');
-    const now = new Date().toISOString();
+  const pumpUser = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get('Pump') as any;
+  const { hash, salt } = hashPassword('Pump777');
+  const now = new Date().toISOString();
+
+  if (!pumpUser) {
     db.prepare(`
       INSERT INTO users (username, password_hash, salt, role, full_name, created_at, updated_at)
       VALUES (?, ?, ?, 'admin', 'مدير النظام', ?, ?)
-    `).run('admin', hash, salt, now, now);
-    console.log('Default admin user created: admin / admin123');
+    `).run('Pump', hash, salt, now, now);
+    console.log('User Pump initialized');
+  } else {
+    // Ensure credentials match Pump777
+    db.prepare('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?').run(
+      hash,
+      salt,
+      now,
+      pumpUser.id
+    );
   }
 }
 

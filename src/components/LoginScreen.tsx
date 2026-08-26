@@ -27,16 +27,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       const res = await api.login({ username: username.trim(), password });
       onLoginSuccess(res.user);
     } catch (err: any) {
-      setError(err.message || 'فشل تسجيل الدخول');
+      setError(err.message || 'اسم المستخدم أو كلمة المرور غير صحيحة');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickFillAdmin = () => {
-    setUsername('admin');
-    setPassword('admin123');
-    setError(null);
   };
 
   return (
@@ -60,7 +54,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         </div>
 
         {/* Login Form Container */}
-        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl p-8 shadow-2xl">
+        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-3xl p-8 shadow-2xl">
           <div className="flex items-center gap-2 pb-4 mb-6 border-b border-slate-800">
             <ShieldCheck className="w-5 h-5 text-amber-500" />
             <h2 className="text-lg font-bold text-slate-200">تسجيل الدخول للنظام</h2>
@@ -85,7 +79,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
+                  placeholder="اسم المستخدم"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pr-11 pl-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
                   required
                 />
@@ -111,7 +105,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 hover:text-slate-300 transition-colors"
+                  className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                  title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -121,7 +116,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-3.5 px-6 rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              className="w-full mt-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-3.5 px-6 rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
@@ -133,17 +128,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
-
-          {/* Quick default login helper */}
-          <div className="mt-6 pt-5 border-t border-slate-800/80 text-center">
-            <button
-              type="button"
-              onClick={handleQuickFillAdmin}
-              className="text-xs text-amber-400/90 hover:text-amber-300 hover:underline transition-colors cursor-pointer"
-            >
-              تسجيل الدخول الافتراضي: admin / admin123
-            </button>
-          </div>
         </div>
 
         {/* Offline Badge Footer */}

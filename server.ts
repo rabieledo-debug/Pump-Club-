@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { initDatabase, CUSTOMER_IMAGES_DIR, COACH_IMAGES_DIR } from './server/db.js';
 import { router as apiRouter } from './server/routes.js';
 
@@ -11,28 +10,40 @@ async function startServer() {
   // Initialize SQLite database
   await initDatabase();
 
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // CORS middleware for cross-origin and multi-device access
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Serve uploaded images statically
   app.use('/uploads/customer-images', express.static(CUSTOMER_IMAGES_DIR));
   app.use('/uploads/coach-images', express.static(COACH_IMAGES_DIR));
 
-  // Mount API routes
-  app.use('/api', apiRouter);
-
-  // Health check
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', app: 'Pump Club', version: '1.0.0', local_sqlite: true });
+  // Health checks
+  app.get(['/api/health', '/health'], (req, res) => {
+    res.json({ status: 'ok', app: 'Pump Club', version: '1.0.0', local_sqlite: true, time: new Date().toISOString() });
   });
 
-  // Explicit JSON response for any unhandled /api route
+  // Mount API routes under /api
+  app.use('/api', apiRouter);
+
+  // Catch-all for unhandled /api/* routes to guarantee a structured JSON 404
   app.all('/api/*', (req, res) => {
-    res.status(404).json({ error: `المسار غير موجود (${req.method} ${req.originalUrl})` });
+    res.status(404).json({ error: `مسار الـ API غير موجود (${req.method} ${req.originalUrl})` });
   });
 
   // Vite middleware for development vs static build in production
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -57,3 +68,4 @@ async function startServer() {
 startServer().catch((err) => {
   console.error('Failed to start server:', err);
 });
+

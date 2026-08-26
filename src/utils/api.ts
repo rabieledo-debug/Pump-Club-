@@ -12,10 +12,19 @@ import {
 
 const API_BASE = '/api';
 
+export function getApiUrl(endpoint: string): string {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  if (cleanEndpoint.startsWith('/api/')) {
+    return cleanEndpoint;
+  }
+  return `${API_BASE}${cleanEndpoint}`;
+}
+
 export async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const url = getApiUrl(endpoint);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${endpoint}`, {
+    res = await fetch(url, {
       ...options,
       headers: {
         ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
@@ -23,8 +32,8 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
       },
     });
   } catch (netErr: any) {
-    console.error(`Network fetch failure for ${endpoint}:`, netErr);
-    throw new Error('تعذر الاتصال بخادم النظام، يرجى التأكد من تشغيل الخادم.');
+    console.error(`Network fetch failure for ${url}:`, netErr);
+    throw new Error('تعذر الاتصال بخادم النظام. يرجى التأكد من تشغيل الخادم والاتصال بالشبكة.');
   }
 
   const contentType = res.headers.get('content-type') || '';
@@ -37,11 +46,19 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
   }
 
   const text = await res.text();
-  console.error(`Non-JSON response from ${endpoint} (${res.status}):`, text.substring(0, 200));
+  console.error(`Non-JSON response from ${url} (${res.status}):`, text.substring(0, 200));
   if (!res.ok) {
-    throw new Error(`خطأ في الخادم (${res.status}): لم يتم العثور على المسار أو الخادم قيد التهيئة.`);
+    if (res.status === 404) {
+      throw new Error('تعذر الوصول لمسار الخادم (404). يرجى التأكد من تشغيل الخادم.');
+    }
+    throw new Error(`خطأ في الخادم (${res.status}): ${res.statusText}`);
   }
-  throw new Error('استجابة غير صالحة من الخادم');
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error('استجابة غير صالحة من الخادم');
+  }
 }
 
 export const api = {

@@ -1,0 +1,8 @@
+{
+  "name": "Pump Club",
+  "description": "نظام احترافي لإدارة الجيم والاشتراكات، يعمل محليًا بدون إنترنت مع قاعدة بيانات SQLite، باركود، تسجيل الدخول السريع، بطاقات العضوية، وإدارة المدربين والنسخ الاحتياطي.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

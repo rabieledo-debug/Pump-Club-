@@ -102,9 +102,9 @@ export function computeCustomerStatus(
   }
 }
 
-// Initial seed
+// Initialize offline store without any fake, demo, or automatic members
 export function initOfflineStore(): void {
-  // 1. Users
+  // 1. Admin User
   const users = getItem<LocalUser[]>(STORAGE_KEYS.USERS, []);
   const pumpUser = users.find((u) => u.username.toLowerCase() === 'pump');
   const now = new Date().toISOString();
@@ -132,111 +132,23 @@ export function initOfflineStore(): void {
     setItem(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
   }
 
-  // 3. Sample coaches if empty
-  const coaches = getItem<Coach[]>(STORAGE_KEYS.COACHES, []);
-  if (coaches.length === 0) {
-    const seedCoaches: Coach[] = [
-      {
-        id: 1,
-        name: 'كابتن أحمد علي',
-        phone: '01011112222',
-        specialty: 'كمال أجسام وتنشيف',
-        notes: 'مدرب معتمد بخبرة 8 سنوات',
-        active: 1,
-        created_at: now,
-      },
-      {
-        id: 2,
-        name: 'كابتن مصطفى محمود',
-        phone: '01033334444',
-        specialty: 'لياقة بدنية وCrossFit',
-        notes: 'مدرب حاصل على شهادات دولية',
-        active: 1,
-        created_at: now,
-      },
-    ];
-    setItem(STORAGE_KEYS.COACHES, seedCoaches);
+  // 3. Clean up any legacy demo / sample members if they were auto-seeded
+  const rawCustomers = getItem<Customer[]>(STORAGE_KEYS.CUSTOMERS, []);
+  const demoMembershipIds = ['PUMP-1001', 'PUMP-1002', 'PUMP-1003'];
+  const demoNames = ['طارق حسام الدين', 'كريم عبد العزيز', 'يوسف جمال'];
+  const cleanedCustomers = rawCustomers.filter(
+    (c) => !demoMembershipIds.includes(c.membership_id) && !demoNames.includes(c.full_name)
+  );
+  if (cleanedCustomers.length !== rawCustomers.length) {
+    setItem(STORAGE_KEYS.CUSTOMERS, cleanedCustomers);
   }
 
-  // 4. Sample customers if empty
-  const customers = getItem<Customer[]>(STORAGE_KEYS.CUSTOMERS, []);
-  if (customers.length === 0) {
-    const d = new Date();
-    const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-    const c1Start = new Date(d);
-    c1Start.setDate(c1Start.getDate() - 10);
-    const c1End = new Date(d);
-    c1End.setDate(c1End.getDate() + 20);
-
-    const c2Start = new Date(d);
-    c2Start.setDate(c2Start.getDate() - 25);
-    const c2End = new Date(d);
-    c2End.setDate(c2End.getDate() + 3);
-
-    const c3Start = new Date(d);
-    c3Start.setDate(c3Start.getDate() - 40);
-    const c3End = new Date(d);
-    c3End.setDate(c3End.getDate() - 5);
-
-    const seedCustomers: Customer[] = [
-      {
-        id: 1,
-        membership_id: 'PUMP-1001',
-        full_name: 'طارق حسام الدين',
-        phone: '01122334455',
-        national_id: '29501011234567',
-        barcode: '100100',
-        plan_type: 'شهر واحد',
-        duration_months: 1,
-        start_date: formatDate(c1Start),
-        end_date: formatDate(c1End),
-        original_end_date: formatDate(c1End),
-        is_private: 0,
-        price_paid: 450,
-        notes: 'مشترك نشط',
-        status: 'active',
-        created_at: c1Start.toISOString(),
-        updated_at: c1Start.toISOString(),
-      },
-      {
-        id: 2,
-        membership_id: 'PUMP-1002',
-        full_name: 'كريم عبد العزيز',
-        phone: '01233445566',
-        barcode: '100200',
-        plan_type: '3 شهور',
-        duration_months: 3,
-        start_date: formatDate(c2Start),
-        end_date: formatDate(c2End),
-        original_end_date: formatDate(c2End),
-        is_private: 1,
-        coach_id: 1,
-        coach_name: 'كابتن أحمد علي',
-        price_paid: 1200,
-        status: 'expiring_soon',
-        created_at: c2Start.toISOString(),
-        updated_at: c2Start.toISOString(),
-      },
-      {
-        id: 3,
-        membership_id: 'PUMP-1003',
-        full_name: 'يوسف جمال',
-        phone: '01099887766',
-        barcode: '100300',
-        plan_type: 'شهر واحد',
-        duration_months: 1,
-        start_date: formatDate(c3Start),
-        end_date: formatDate(c3End),
-        original_end_date: formatDate(c3End),
-        is_private: 0,
-        price_paid: 450,
-        status: 'expired',
-        created_at: c3Start.toISOString(),
-        updated_at: c3Start.toISOString(),
-      },
-    ];
-    setItem(STORAGE_KEYS.CUSTOMERS, seedCustomers);
+  // 4. Clean up any legacy demo coaches
+  const rawCoaches = getItem<Coach[]>(STORAGE_KEYS.COACHES, []);
+  const demoCoachNames = ['كابتن أحمد علي', 'كابتن مصطفى محمود'];
+  const cleanedCoaches = rawCoaches.filter((c) => !demoCoachNames.includes(c.name));
+  if (cleanedCoaches.length !== rawCoaches.length) {
+    setItem(STORAGE_KEYS.COACHES, cleanedCoaches);
   }
 }
 

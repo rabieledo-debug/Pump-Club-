@@ -1,12 +1,8 @@
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { initDatabase, CUSTOMER_IMAGES_DIR, COACH_IMAGES_DIR } from './server/db.js';
 import { router as apiRouter } from './server/routes.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
@@ -28,6 +24,11 @@ async function startServer() {
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', app: 'Pump Club', version: '1.0.0', local_sqlite: true });
+  });
+
+  // Explicit JSON response for any unhandled /api route
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `المسار غير موجود (${req.method} ${req.originalUrl})` });
   });
 
   // Vite middleware for development vs static build in production

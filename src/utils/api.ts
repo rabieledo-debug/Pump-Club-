@@ -13,29 +13,35 @@ import {
 const API_BASE = '/api';
 
 export async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...options?.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers: {
+        ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...options?.headers,
+      },
+    });
+  } catch (netErr: any) {
+    console.error(`Network fetch failure for ${endpoint}:`, netErr);
+    throw new Error('تعذر الاتصال بخادم النظام، يرجى التأكد من تشغيل الخادم.');
+  }
 
   const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    const text = await res.text();
-    console.error(`Non-JSON response from ${endpoint}:`, text.substring(0, 200));
+  if (contentType.includes('application/json')) {
+    const data = await res.json();
     if (!res.ok) {
-      throw new Error(`خطأ في الخادم (${res.status}): ${res.statusText}`);
+      throw new Error(data.error || `خطأ (${res.status}): ${res.statusText}`);
     }
-    throw new Error('استجابة غير صالحة من الخادم (تأكد من تشغيل خادم الـ API)');
+    return data;
   }
 
-  const data = await res.json();
+  const text = await res.text();
+  console.error(`Non-JSON response from ${endpoint} (${res.status}):`, text.substring(0, 200));
   if (!res.ok) {
-    throw new Error(data.error || 'حدث خطأ أثناء الاتصال بالخادم');
+    throw new Error(`خطأ في الخادم (${res.status}): لم يتم العثور على المسار أو الخادم قيد التهيئة.`);
   }
-  return data;
+  throw new Error('استجابة غير صالحة من الخادم');
 }
 
 export const api = {

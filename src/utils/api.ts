@@ -9,6 +9,7 @@ import {
   SubscriptionHistoryItem,
   FreezeRecord,
 } from '../types';
+import { offlineStore, initOfflineStore } from './offlineStore';
 
 const API_BASE = '/api';
 
@@ -32,189 +33,330 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
       },
     });
   } catch (netErr: any) {
-    console.error(`Network fetch failure for ${url}:`, netErr);
-    throw new Error('تعذر الاتصال بخادم النظام. يرجى التأكد من تشغيل الخادم والاتصال بالشبكة.');
+    const errorMsg = 'تعذر الاتصال بالخادم (الوضع غير المتصل)';
+    const err = new Error(errorMsg);
+    (err as any).isOffline = true;
+    throw err;
   }
 
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || `خطأ (${res.status}): ${res.statusText}`);
+      const err = new Error(data.error || `خطأ (${res.status}): ${res.statusText}`);
+      (err as any).status = res.status;
+      throw err;
     }
     return data;
   }
 
   const text = await res.text();
-  console.error(`Non-JSON response from ${url} (${res.status}):`, text.substring(0, 200));
   if (!res.ok) {
-    if (res.status === 404) {
-      throw new Error('تعذر الوصول لمسار الخادم (404). يرجى التأكد من تشغيل الخادم.');
-    }
-    throw new Error(`خطأ في الخادم (${res.status}): ${res.statusText}`);
+    const err = new Error(`خطأ في الخادم (${res.status}): ${res.statusText}`);
+    (err as any).status = res.status;
+    (err as any).is404 = res.status === 404;
+    throw err;
   }
 
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error('استجابة غير صالحة من الخادم');
+    const err = new Error('استجابة غير صالحة من الخادم');
+    (err as any).isOffline = true;
+    throw err;
+  }
+}
+
+// Wrapper to try online request and seamlessly fallback to offlineStore on 404 or connection failure
+async function withOfflineFallback<T>(onlineFn: () => Promise<T>, offlineFn: () => Promise<T>): Promise<T> {
+  try {
+    return await onlineFn();
+  } catch (err: any) {
+    // If it's a 401 / 400 validation error with an explicit error message (not 404 / network fail), bubble it
+    if (err.status === 401 || err.status === 400 || err.status === 403) {
+      throw err;
+    }
+    // If it's a 404, network failure, or offline mode, fallback to offlineStore
+    return await offlineFn();
   }
 }
 
 export const api = {
   // Auth
-  login: (credentials: { username: string; password: string }) =>
-    request<{ user: any; message: string }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    }),
+  login: async (credentials: { username: string; password: string }) => {
+    initOfflineStore();
+    return withOfflineFallback(
+      () =>
+        request<{ user: any; message: string }>('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify(credentials),
+        }),
+      () => offlineStore.login(credentials)
+    );
+  },
 
-  changePassword: (data: { username: string; currentPassword: string; newPassword: string }) =>
-    request<{ success: boolean; message: string }>('/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  changePassword: async (data: { username: string; currentPassword: string; newPassword: string }) =>
+    withOfflineFallback(
+      () =>
+        request<{ success: boolean; message: string }>('/auth/change-password', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+      () => offlineStore.changePassword(data)
+    ),
 
   // Dashboard
   getStats: () =>
-    request<{
-      stats: DashboardStats;
-      recentCheckIns: any[];
-      expiringSoon: Customer[];
-      expiringSoonList?: Customer[];
-      expired: Customer[];
-      expiredList?: Customer[];
-    }>('/dashboard/stats'),
+    withOfflineFallback(
+      () =>
+        request<{
+          stats: DashboardStats;
+          recentCheckIns: any[];
+          expiringSoon: Customer[];
+          expiringSoonList?: Customer[];
+          expired: Customer[];
+          expiredList?: Customer[];
+        }>('/dashboard/stats'),
+      () => offlineStore.getDashboardStats()
+    ),
 
   getDashboardStats: () =>
-    request<{
-      stats: DashboardStats;
-      recentCheckIns: any[];
-      expiringSoon: Customer[];
-      expired: Customer[];
-    }>('/dashboard/stats'),
+    withOfflineFallback(
+      () =>
+        request<{
+          stats: DashboardStats;
+          recentCheckIns: any[];
+          expiringSoon: Customer[];
+          expired: Customer[];
+        }>('/dashboard/stats'),
+      () => offlineStore.getDashboardStats()
+    ),
 
   // Customers
-  getCustomers: (params?: { search?: string; status?: string; coach_id?: string | number; is_private?: string | number }) => {
-    const query = new URLSearchParams();
-    if (params?.search) query.append('search', params.search);
-    if (params?.status) query.append('status', params.status);
-    if (params?.coach_id) query.append('coach_id', String(params.coach_id));
-    if (params?.is_private !== undefined) query.append('is_private', String(params.is_private));
-    return request<{ customers: Customer[]; total: number }>(`/customers?${query.toString()}`);
-  },
+  getCustomers: (params?: { search?: string; status?: string; coach_id?: string | number; is_private?: string | number }) =>
+    withOfflineFallback(
+      () => {
+        const query = new URLSearchParams();
+        if (params?.search) query.append('search', params.search);
+        if (params?.status) query.append('status', params.status);
+        if (params?.coach_id) query.append('coach_id', String(params.coach_id));
+        if (params?.is_private !== undefined) query.append('is_private', String(params.is_private));
+        return request<{ customers: Customer[]; total: number }>(`/customers?${query.toString()}`);
+      },
+      () => offlineStore.getCustomers(params)
+    ),
 
   getCustomer: (id: number) =>
-    request<{
-      customer: Customer;
-      history: SubscriptionHistoryItem[];
-      freezes: FreezeRecord[];
-      checkIns: CheckInRecord[];
-      stats: { total_check_ins: number; last_check_in: string | null };
-    }>(`/customers/${id}`),
+    withOfflineFallback(
+      () =>
+        request<{
+          customer: Customer;
+          history: SubscriptionHistoryItem[];
+          freezes: FreezeRecord[];
+          checkIns: CheckInRecord[];
+          stats: { total_check_ins: number; last_check_in: string | null };
+        }>(`/customers/${id}`),
+      () => offlineStore.getCustomer(id)
+    ),
 
   createCustomer: (formData: FormData) =>
-    request<{ customer: Customer; message: string }>('/customers', {
-      method: 'POST',
-      body: formData,
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ customer: Customer; message: string }>('/customers', {
+          method: 'POST',
+          body: formData,
+        }),
+      () => offlineStore.createCustomer(formData)
+    ),
 
   updateCustomer: (id: number, formData: FormData) =>
-    request<{ customer: Customer; message: string }>(`/customers/${id}`, {
-      method: 'PUT',
-      body: formData,
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ customer: Customer; message: string }>(`/customers/${id}`, {
+          method: 'PUT',
+          body: formData,
+        }),
+      () => offlineStore.updateCustomer(id, formData)
+    ),
 
   deleteCustomer: (id: number) =>
-    request<{ success: boolean; message: string }>(`/customers/${id}`, {
-      method: 'DELETE',
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ success: boolean; message: string }>(`/customers/${id}`, {
+          method: 'DELETE',
+        }),
+      () => offlineStore.deleteCustomer(id)
+    ),
 
   renewCustomer: (id: number, data: { plan_type: string; duration_months: number; price_paid: number; notes?: string }) =>
-    request<{ customer: Customer; message: string }>(`/customers/${id}/renew`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ customer: Customer; message: string }>(`/customers/${id}/renew`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+      () => offlineStore.renewCustomer(id, data)
+    ),
 
   freezeCustomer: (id: number, data: { start_date: string; end_date?: string; days_count?: number; reason?: string }) =>
-    request<{ customer: Customer; new_end_date: string; message: string }>(`/customers/${id}/freeze`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ customer: Customer; new_end_date: string; message: string }>(`/customers/${id}/freeze`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+      () => offlineStore.freezeCustomer(id, data)
+    ),
 
   // Check-in
   scanCheckIn: (barcode: string) =>
-    request<{
-      granted: boolean;
-      status: string;
-      message: string;
-      customer: Customer;
-      check_in_time: string;
-    }>('/check-in/scan', {
-      method: 'POST',
-      body: JSON.stringify({ barcode }),
-    }),
+    withOfflineFallback(
+      () =>
+        request<{
+          granted: boolean;
+          status: string;
+          message: string;
+          customer: Customer;
+          check_in_time: string;
+        }>('/check-in/scan', {
+          method: 'POST',
+          body: JSON.stringify({ barcode }),
+        }),
+      () => offlineStore.scanCheckIn(barcode)
+    ),
 
-  getCheckInHistory: (params?: { search?: string; date?: string; limit?: number }) => {
-    const query = new URLSearchParams();
-    if (params?.search) query.append('search', params.search);
-    if (params?.date) query.append('date', params.date);
-    if (params?.limit) query.append('limit', String(params.limit));
-    return request<{ history: CheckInRecord[] }>(`/check-in/history?${query.toString()}`);
-  },
+  getCheckInHistory: (params?: { search?: string; date?: string; limit?: number }) =>
+    withOfflineFallback(
+      () => {
+        const query = new URLSearchParams();
+        if (params?.search) query.append('search', params.search);
+        if (params?.date) query.append('date', params.date);
+        if (params?.limit) query.append('limit', String(params.limit));
+        return request<{ history: CheckInRecord[] }>(`/check-in/history?${query.toString()}`);
+      },
+      () => offlineStore.getCheckInHistory(params)
+    ),
 
   // Coaches
-  getCoaches: () => request<{ coaches: Coach[] }>('/coaches'),
-  getCoach: (id: number) => request<{ coach: Coach; customers: Customer[] }>(`/coaches/${id}`),
+  getCoaches: () =>
+    withOfflineFallback(
+      () => request<{ coaches: Coach[] }>('/coaches'),
+      () => offlineStore.getCoaches()
+    ),
+
+  getCoach: (id: number) =>
+    withOfflineFallback(
+      () => request<{ coach: Coach; customers: Customer[] }>(`/coaches/${id}`),
+      () => offlineStore.getCoach(id)
+    ),
+
   createCoach: (formData: FormData) =>
-    request<{ coach: Coach; message: string }>('/coaches', {
-      method: 'POST',
-      body: formData,
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ coach: Coach; message: string }>('/coaches', {
+          method: 'POST',
+          body: formData,
+        }),
+      () => offlineStore.createCoach(formData)
+    ),
+
   updateCoach: (id: number, formData: FormData) =>
-    request<{ coach: Coach; message: string }>(`/coaches/${id}`, {
-      method: 'PUT',
-      body: formData,
-    }),
-  deleteCoach: (id: number) => request<{ success: boolean; message: string }>(`/coaches/${id}`, { method: 'DELETE' }),
+    withOfflineFallback(
+      () =>
+        request<{ coach: Coach; message: string }>(`/coaches/${id}`, {
+          method: 'PUT',
+          body: formData,
+        }),
+      () => offlineStore.updateCoach(id, formData)
+    ),
+
+  deleteCoach: (id: number) =>
+    withOfflineFallback(
+      () => request<{ success: boolean; message: string }>(`/coaches/${id}`, { method: 'DELETE' }),
+      () => offlineStore.deleteCoach(id)
+    ),
 
   // Reports
   getReports: () =>
-    request<{
-      summary: any;
-      plansDistribution: { name: string; value: number }[];
-      dailyTrend: { date: string; label: string; checkIns: number }[];
-    }>('/reports'),
+    withOfflineFallback(
+      () =>
+        request<{
+          summary: any;
+          plansDistribution: { name: string; value: number }[];
+          dailyTrend: { date: string; label: string; checkIns: number }[];
+        }>('/reports'),
+      () => offlineStore.getReports()
+    ),
 
   // Notifications
   getNotifications: () =>
-    request<{ notifications: NotificationItem[]; unreadCount?: number; unread_count?: number }>('/notifications'),
+    withOfflineFallback(
+      () => request<{ notifications: NotificationItem[]; unreadCount?: number; unread_count?: number }>('/notifications'),
+      () => offlineStore.getNotifications()
+    ),
+
   markNotificationsRead: (id?: number) =>
-    request<{ success: boolean }>('/notifications/mark-read', {
-      method: 'POST',
-      body: JSON.stringify({ id }),
-    }),
-  clearNotifications: () => request<{ success: boolean }>('/notifications/clear-all', { method: 'POST' }),
+    withOfflineFallback(
+      () =>
+        request<{ success: boolean }>('/notifications/mark-read', {
+          method: 'POST',
+          body: JSON.stringify({ id }),
+        }),
+      () => offlineStore.markNotificationsRead()
+    ),
+
+  clearNotifications: () =>
+    withOfflineFallback(
+      () => request<{ success: boolean }>('/notifications/clear-all', { method: 'POST' }),
+      () => offlineStore.clearNotifications()
+    ),
 
   // Settings
-  getSettings: () => request<{ settings: GymSettings }>('/settings'),
+  getSettings: () =>
+    withOfflineFallback(
+      () => request<{ settings: GymSettings }>('/settings'),
+      () => offlineStore.getSettings()
+    ),
+
   saveSettings: (settings: GymSettings | Record<string, any>) =>
-    request<{ success: boolean; message: string }>('/settings', {
-      method: 'POST',
-      body: JSON.stringify({ settings }),
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ success: boolean; message: string }>('/settings', {
+          method: 'POST',
+          body: JSON.stringify({ settings }),
+        }),
+      () => offlineStore.updateSettings(settings as Partial<GymSettings>)
+    ),
+
   updateSettings: (settings: Partial<GymSettings>) =>
-    request<{ success: boolean; message: string }>('/settings', {
-      method: 'POST',
-      body: JSON.stringify({ settings }),
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ success: boolean; message: string }>('/settings', {
+          method: 'POST',
+          body: JSON.stringify({ settings }),
+        }),
+      () => offlineStore.updateSettings(settings)
+    ),
 
   // Backup & System
   getBackupUrl: () => `${API_BASE}/backup/download`,
-  getSystemInfo: () => request<SystemInfo>('/system/info'),
+  getSystemInfo: () =>
+    withOfflineFallback(
+      () => request<SystemInfo>('/system/info'),
+      () => offlineStore.getSystemInfo()
+    ),
   restoreBackup: (formData: FormData) =>
-    request<{ success: boolean; message: string }>('/backup/restore', {
-      method: 'POST',
-      body: formData,
-    }),
+    withOfflineFallback(
+      () =>
+        request<{ success: boolean; message: string }>('/backup/restore', {
+          method: 'POST',
+          body: formData,
+        }),
+      async () => {
+        const file = formData.get('backup') as File;
+        if (!file) throw new Error('يرجى اختيار ملف النسخة الاحتياطية');
+        const text = await file.text();
+        return offlineStore.restoreDatabaseBackup(text);
+      }
+    ),
 };

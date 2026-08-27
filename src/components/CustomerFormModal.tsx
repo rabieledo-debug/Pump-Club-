@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Upload, Dumbbell, Calendar, User, Phone, DollarSign, FileText } from 'lucide-react';
 import { Customer, Coach } from '../types';
 import { api } from '../utils/api';
+import { CountrySelector } from './CountrySelector';
+import { COUNTRIES, CountryInfo, DEFAULT_COUNTRY, parsePhoneNumber } from '../data/countries';
 
 interface CustomerFormModalProps {
   customer?: Customer | null;
@@ -18,8 +20,14 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 }) => {
   const isEditing = !!customer;
 
+  // Parse phone and country code
+  const initialPhoneParsed = customer?.phone
+    ? parsePhoneNumber(customer.phone)
+    : { country: DEFAULT_COUNTRY, localPhone: '' };
+
   const [fullName, setFullName] = useState(customer?.full_name || '');
-  const [phone, setPhone] = useState(customer?.phone || '');
+  const [selectedCountry, setSelectedCountry] = useState<CountryInfo>(initialPhoneParsed.country);
+  const [localPhone, setLocalPhone] = useState(initialPhoneParsed.localPhone);
   const [nationalId, setNationalId] = useState(customer?.national_id || '');
   const [planType, setPlanType] = useState(customer?.plan_type || 'Monthly');
   const [durationMonths, setDurationMonths] = useState<number>(customer?.duration_months || 1);
@@ -72,8 +80,13 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !phone.trim()) {
-      setError('الاسم ورقم الهاتف حقول مطلوبة');
+    if (!fullName.trim()) {
+      setError('يرجى إدخال اسم العميل');
+      return;
+    }
+
+    if (!localPhone.trim()) {
+      setError('يرجى إدخال رقم الهاتف');
       return;
     }
 
@@ -85,10 +98,14 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     setLoading(true);
     setError(null);
 
+    // Format full international phone number
+    const cleanLocal = localPhone.trim().replace(/\s+/g, '');
+    const fullPhoneNumber = `${selectedCountry.dialCode} ${cleanLocal}`;
+
     try {
       const formData = new FormData();
       formData.append('full_name', fullName.trim());
-      formData.append('phone', phone.trim());
+      formData.append('phone', fullPhoneNumber);
       if (nationalId) formData.append('national_id', nationalId.trim());
       formData.append('plan_type', planType);
       formData.append('duration_months', String(durationMonths));
@@ -130,7 +147,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
                 {isEditing ? 'تعديل بيانات العميل' : 'إضافة عميل جديد'}
               </h2>
               <p className="text-xs text-slate-400">
-                سيتم حفظ البيانات والصور محلياً في قاعدة بيانات SQLite.
+                تسجيل العميل محلياً مع اختيار مفتاح الدولة وإصدار كارت الباركود.
               </p>
             </div>
           </div>
@@ -196,18 +213,33 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Phone input with Country Selector */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">رقم الهاتف *</label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="01012345678"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
-                    dir="ltr"
-                    required
-                  />
+                  <label className="block text-xs font-semibold text-slate-400 mb-1 flex items-center justify-between">
+                    <span>رقم الهاتف *</span>
+                    <span className="text-[10px] text-amber-400 font-normal">
+                      {selectedCountry.flag} {selectedCountry.nameAr} ({selectedCountry.dialCode})
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <CountrySelector
+                      selectedCountry={selectedCountry}
+                      onSelectCountry={setSelectedCountry}
+                    />
+                    <div className="relative flex-1">
+                      <input
+                        type="tel"
+                        value={localPhone}
+                        onChange={(e) => setLocalPhone(e.target.value)}
+                        placeholder="01012345678"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-amber-500 font-mono tracking-wide"
+                        dir="ltr"
+                        required
+                      />
+                    </div>
+                  </div>
                 </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1">الرقم القومي / الهوية</label>
                   <input
@@ -215,7 +247,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
                     value={nationalId}
                     onChange={(e) => setNationalId(e.target.value)}
                     placeholder="اختياري"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
                   />
                 </div>
               </div>

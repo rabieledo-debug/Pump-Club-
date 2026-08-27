@@ -44,8 +44,10 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({ customer, settings
   const handleSend = () => {
     // Clean phone number
     let cleanPhone = customer.phone.replace(/[^0-9]/g, '');
-    // If Egyptian number starting with 01
-    if (cleanPhone.startsWith('01')) {
+    // If starts with 2001 (e.g. +20 010...), remove leading zero after country code to standard 201...
+    if (cleanPhone.startsWith('2001')) {
+      cleanPhone = '20' + cleanPhone.substring(3);
+    } else if (cleanPhone.startsWith('01')) {
       cleanPhone = '2' + cleanPhone;
     }
 

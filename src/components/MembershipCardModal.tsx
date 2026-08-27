@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { X, Printer, Dumbbell, QrCode, Download, ShieldCheck, Sparkles, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  X,
+  Printer,
+  Dumbbell,
+  QrCode,
+  Barcode as BarcodeIcon,
+  Download,
+  ShieldCheck,
+  Sparkles,
+  CreditCard,
+} from 'lucide-react';
 import { Customer } from '../types';
-import { generateQRCodeDataUrl } from '../utils/qrcode';
+import { renderBarcodeSvg, generateBarcodeDataUrl } from '../utils/barcode';
+import { generateQRCodeDataUrl, generateQRCodeSvg } from '../utils/qrcode';
 
 interface MembershipCardModalProps {
   customer: Customer;
@@ -9,43 +20,90 @@ interface MembershipCardModalProps {
 }
 
 export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ customer, onClose }) => {
+  const [codeType, setCodeType] = useState<'qrcode' | 'barcode'>('qrcode');
+  const [qrSvg, setQrSvg] = useState<string>('');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [barcodeDataUrl, setBarcodeDataUrl] = useState<string>('');
   const [generating, setGenerating] = useState<boolean>(true);
+  const barcodeSvgRef = useRef<SVGSVGElement>(null);
 
-  // Generate unique dynamic QR Code strictly containing ONLY the member's unique Membership ID
+  // The unique identifier for scanning
+  const membershipIdValue = customer.membership_id || `PC-${customer.id.toString().padStart(4, '0')}`;
+  const barcodeValue = customer.barcode || customer.membership_id || `88${customer.id.toString().padStart(6, '0')}`;
+
+  // QR Code payload uses the exact membership identifier
+  const qrPayload = membershipIdValue;
+
   useEffect(() => {
     let isMounted = true;
-    const generateCode = async () => {
-      setGenerating(true);
-      try {
-        // Encode ONLY the unique membership ID (e.g. "PC-2026-0001")
-        const idValue = customer.membership_id || `PC-${customer.id.toString().padStart(4, '0')}`;
-        const url = await generateQRCodeDataUrl(idValue, {
-          width: 320,
-          margin: 2,
-          errorCorrectionLevel: 'M',
-          color: {
-            dark: '#0f172a', // Deep slate for maximum scanner optical contrast
-            light: '#ffffff',
-          },
-        });
-        if (isMounted) {
-          setQrDataUrl(url);
-        }
-      } catch (err) {
-        console.error('Failed to generate QR Code:', err);
-      } finally {
-        if (isMounted) {
-          setGenerating(false);
-        }
-      }
-    };
+    setGenerating(true);
 
-    generateCode();
+    try {
+      // 1. Generate High-Res Vector SVG for QR Code (for crystal sharp display & print)
+      generateQRCodeSvg(qrPayload, {
+        width: 360,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      }).then((svg) => {
+        if (isMounted) setQrSvg(svg);
+      });
+
+      // 2. Generate High-Res PNG Data URL (900px for print & download)
+      generateQRCodeDataUrl(qrPayload, {
+        width: 900,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      }).then((url) => {
+        if (isMounted) setQrDataUrl(url);
+      });
+
+      // 3. Render 1D Barcode SVG & DataURL
+      if (barcodeSvgRef.current) {
+        renderBarcodeSvg(barcodeSvgRef.current, barcodeValue, {
+          format: 'CODE128',
+          width: 2.2,
+          height: 60,
+          displayValue: true,
+          text: barcodeValue,
+          fontSize: 12,
+          margin: 8,
+          background: '#ffffff',
+          lineColor: '#000000',
+        });
+      }
+
+      const bData = generateBarcodeDataUrl(barcodeValue, {
+        format: 'CODE128',
+        width: 2.8,
+        height: 75,
+        displayValue: true,
+        text: barcodeValue,
+        fontSize: 14,
+        margin: 12,
+        background: '#ffffff',
+        lineColor: '#000000',
+      });
+      if (isMounted && bData) {
+        setBarcodeDataUrl(bData);
+      }
+    } catch (err) {
+      console.error('Failed to generate card codes:', err);
+    } finally {
+      if (isMounted) setGenerating(false);
+    }
+
     return () => {
       isMounted = false;
     };
-  }, [customer.membership_id, customer.id]);
+  }, [qrPayload, barcodeValue, codeType]);
 
   const handlePrint = () => {
     window.print();
@@ -55,7 +113,17 @@ export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ custom
     if (!qrDataUrl) return;
     const a = document.createElement('a');
     a.href = qrDataUrl;
-    a.download = `QR_${customer.membership_id || customer.id}_${customer.full_name}.png`;
+    a.download = `QR_${membershipIdValue}_${customer.full_name}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleDownloadBarcodeOnly = () => {
+    if (!barcodeDataUrl) return;
+    const a = document.createElement('a');
+    a.href = barcodeDataUrl;
+    a.download = `Barcode_${customer.membership_id || customer.id}_${customer.full_name}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -67,17 +135,17 @@ export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ custom
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl">
-        {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl my-4">
+        {/* Header Modal */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 no-print">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              <QrCode className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <CreditCard className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-100">بطاقة العضوية الذكية (Smart QR Card)</h2>
+              <h2 className="text-base font-bold text-slate-100">بطاقة العضوية القياسية (CR80 PVC Card)</h2>
               <p className="text-xs text-slate-400">
-                بطاقة عضوية مع رمز QR فريد متوافق مع الماسح الضوئي وطابعات الكروت البلاستيكية.
+                أبعاد كارت الفيزا الموحدة (85.60 × 53.98 مم) مع رمز QR ضخم على اليسار وبيانات العضوية على اليمين.
               </p>
             </div>
           </div>
@@ -89,141 +157,198 @@ export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ custom
           </button>
         </div>
 
+        {/* Code Format Switcher */}
+        <div className="px-6 py-3 flex items-center justify-between gap-3 no-print bg-slate-950/40 border-b border-slate-800/60">
+          <span className="text-xs text-slate-400 font-medium">نوع رمز الدخول:</span>
+          <div className="flex items-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setCodeType('qrcode')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                codeType === 'qrcode'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>رمز QR عريض</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCodeType('barcode')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                codeType === 'barcode'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <BarcodeIcon className="w-3.5 h-3.5" />
+              <span>باركود ليزري (1D)</span>
+            </button>
+          </div>
+        </div>
+
         {/* Card Container Preview */}
-        <div className="p-8 flex flex-col items-center justify-center bg-slate-950/80">
-          {/* Real Card - CR80 Dimensions Styling (85.6mm x 54mm equivalent ratio) */}
+        <div className="p-6 sm:p-8 flex flex-col items-center justify-center bg-slate-950/80">
+          {/* =========================================================================
+              CR80 VISA / BANK-CARD STANDARD MEMBERSHIP CARD (85.60 × 53.98 mm)
+              Aspect Ratio = 85.6 / 53.98 ≈ 1.5858
+              LEFT: Maximum size QR Code on pure white panel with quiet zone
+              RIGHT: Member Photo, Name, Member ID, Expiry Date
+              ========================================================================= */}
           <div
             id="printable-card"
-            className="w-[430px] h-[270px] rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-neutral-950 text-slate-100 p-5 relative border-2 border-amber-500/50 shadow-2xl flex flex-col justify-between overflow-hidden select-none"
-            dir="rtl"
+            className="w-full max-w-[480px] aspect-[85.6/53.98] rounded-2xl bg-gradient-to-br from-[#0a0e17] via-[#111726] to-[#080b12] text-slate-100 p-3.5 sm:p-4 relative border-2 border-amber-500/60 shadow-2xl flex flex-col justify-between overflow-hidden select-none"
+            dir="ltr"
           >
-            {/* Background Aesthetic Layers */}
-            <div className="absolute top-0 right-0 w-44 h-44 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+            {/* Background Subtle Luxury Accents */}
+            <div className="absolute -top-10 -right-10 w-44 h-44 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
             <div className="absolute -bottom-10 -left-10 w-44 h-44 bg-orange-500/10 rounded-full blur-2xl pointer-events-none" />
-            <div className="absolute inset-0 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px] opacity-5 pointer-events-none" />
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400" />
+            <div className="absolute inset-0 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px] opacity-[0.03] pointer-events-none" />
 
-            {/* Top Bar: Gym Name & Membership Badge */}
-            <div className="flex items-center justify-between z-10">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-md">
-                  <Dumbbell className="w-4.5 h-4.5 text-slate-950 font-black" />
+            {/* TOP HEADER: Compact PUMP CLUB Logo & VIP MEMBER Badge */}
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 z-10">
+              {/* Gym Brand Logo */}
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-sm">
+                  <Dumbbell className="w-3.5 h-3.5 text-slate-950 font-black" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white uppercase tracking-wider leading-none">
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider leading-none">
                     PUMP <span className="text-amber-500">CLUB</span>
                   </h3>
-                  <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
-                    GYM & FITNESS CLUB
-                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-sm flex items-center gap-1">
-                  <Sparkles className="w-2.5 h-2.5" />
+              {/* VIP MEMBER Badge */}
+              <div className="flex items-center">
+                <span className="px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-sm flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5 fill-slate-950" />
                   <span>VIP MEMBER</span>
                 </span>
               </div>
             </div>
 
-            {/* Middle Section: Member Photo & Details */}
-            <div className="flex items-center gap-3.5 my-auto z-10">
-              {/* Member Photo */}
-              <div className="w-[72px] h-[72px] rounded-xl bg-slate-800 border-2 border-amber-500/60 flex items-center justify-center overflow-hidden shrink-0 shadow-lg relative">
-                {customer.image_path ? (
-                  <img
-                    src={customer.image_path}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="text-2xl font-black text-amber-400">
-                    {customer.full_name?.substring(0, 1) || 'ع'}
-                  </span>
-                )}
+            {/* MAIN CR80 BODY: 2 COLUMNS (LEFT: LARGE QR CODE, RIGHT: MEMBER INFO) */}
+            <div className="grid grid-cols-12 gap-3 items-center flex-1 py-1 z-10 min-h-0">
+              
+              {/* =========================================================
+                  LEFT SIDE: LARGE PURE QR CODE ON CLEAN WHITE PANEL
+                  (No text, no labels, maximal QR size with clean quiet zone)
+                  ========================================================= */}
+              <div className="col-span-5 h-full flex items-center justify-center">
+                <div className="w-full h-full max-h-[165px] bg-white rounded-xl p-2 shadow-lg border-2 border-white flex items-center justify-center overflow-hidden">
+                  {codeType === 'qrcode' ? (
+                    <div className="w-full h-full flex items-center justify-center bg-white">
+                      {qrSvg ? (
+                        <div
+                          className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:max-w-[155px] [&>svg]:max-h-[155px] select-none"
+                          dangerouslySetInnerHTML={{ __html: qrSvg }}
+                        />
+                      ) : qrDataUrl ? (
+                        <img
+                          src={qrDataUrl}
+                          alt="Membership QR Code"
+                          className="w-full h-full max-w-[155px] max-h-[155px] object-contain block select-none"
+                        />
+                      ) : (
+                        <div className="w-24 h-24 flex items-center justify-center">
+                          <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center py-1 bg-white">
+                      <svg
+                        ref={barcodeSvgRef}
+                        className="w-full max-h-[85px] block select-none"
+                        style={{ imageRendering: 'crisp-edges', shapeRendering: 'crispEdges' }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Member Text Info (positioned completely away from QR Code) */}
-              <div className="space-y-1 min-w-0 flex-1">
-                <h4 className="text-base font-black text-white truncate leading-tight tracking-wide">
-                  {customer.full_name}
-                </h4>
-                <div className="flex items-center gap-2 text-[10px] text-slate-300">
-                  <span className="bg-slate-800/90 text-amber-300 px-2 py-0.5 rounded border border-slate-700/80 font-bold">
-                    {customer.plan_type}
-                  </span>
-                  {customer.is_private ? (
-                    <span className="bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30 text-[9px] font-bold">
-                      تدريب خاص
-                    </span>
-                  ) : null}
+              {/* =========================================================
+                  RIGHT SIDE: MEMBER INFORMATION STACKED NEATLY
+                  (Photo, Name, Membership ID, Expiry Date)
+                  ========================================================= */}
+              <div className="col-span-7 h-full flex flex-col justify-between pl-1" dir="rtl">
+                
+                {/* 1. Large Member Photo & Name */}
+                <div className="flex items-center gap-2.5">
+                  {/* Member Photo */}
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-slate-800 border-2 border-amber-500 flex items-center justify-center overflow-hidden shrink-0 shadow-md relative">
+                    {customer.image_path ? (
+                      <img
+                        src={customer.image_path}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="text-xl font-black text-amber-400">
+                        {customer.full_name?.substring(0, 1) || 'ع'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Member Name */}
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[8.5px] text-slate-400 font-semibold block uppercase">الاسم / Name</span>
+                    <h4 className="text-sm sm:text-base font-black text-white truncate leading-tight tracking-wide">
+                      {customer.full_name}
+                    </h4>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-[9px] text-slate-400">
-                  <span>
-                    ينتهي في:{' '}
+
+                {/* 2. Structured Member Details (ID & Expiry) */}
+                <div className="space-y-1 pt-1.5 border-t border-slate-800/80 text-[11px]">
+                  
+                  {/* Membership Code / Member ID */}
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-slate-400 text-[10px] font-medium">كود العضوية:</span>
+                    <span className="font-mono font-black text-xs text-amber-400 bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/30 tracking-wider">
+                      {membershipIdValue}
+                    </span>
+                  </div>
+
+                  {/* Expiry Date */}
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-slate-400 text-[10px] font-medium">تاريخ الانتهاء:</span>
                     <span
-                      className={`font-mono font-bold ${
+                      className={`font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border ${
                         isExpired
-                          ? 'text-rose-400'
+                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
                           : isExpiringSoon
-                          ? 'text-amber-400'
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
                           : isFrozen
-                          ? 'text-cyan-400'
-                          : 'text-emerald-400'
+                          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
+                          : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
                       }`}
                     >
                       {customer.end_date}
                     </span>
-                  </span>
+                  </div>
+
                 </div>
+
               </div>
             </div>
 
-            {/* Bottom Bar: Dedicated High-Contrast QR Code Zone + Clear Text Membership ID */}
-            <div className="z-10 bg-slate-950/80 rounded-xl p-2 border border-slate-800 flex items-center justify-between gap-3">
-              {/* Left text block: Membership ID in normal readable text */}
-              <div className="space-y-0.5 text-right min-w-0">
-                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">
-                  رقم العضوية المعتمد
-                </span>
-                <p className="text-sm font-mono font-black text-amber-400 tracking-wider">
-                  {customer.membership_id}
-                </p>
-                <span className="text-[7px] text-slate-500 block">
-                  امسح الـ QR عند الدخول لتأكيد الاشتراك
-                </span>
-              </div>
-
-              {/* Right side: High-contrast white box with generous quiet-zone margins for instant scanner reading */}
-              <div className="bg-white rounded-lg p-1.5 shrink-0 shadow-md flex items-center justify-center border border-white">
-                {generating ? (
-                  <div className="w-16 h-16 flex items-center justify-center">
-                    <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : qrDataUrl ? (
-                  <img
-                    src={qrDataUrl}
-                    alt={`QR Code for ${customer.membership_id}`}
-                    className="w-16 h-16 object-contain block select-none"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
-                ) : (
-                  <div className="w-16 h-16 bg-slate-100 flex items-center justify-center text-[9px] text-slate-500">
-                    QR Code
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Print Stylesheet for exact CR80 PVC card print rendering */}
+        {/* Print Stylesheet for exact CR80 Plastic Card Rendering */}
         <style
           dangerouslySetInnerHTML={{
             __html: `
             @media print {
+              @page {
+                size: 85.6mm 53.98mm;
+                margin: 0;
+              }
               body * {
                 visibility: hidden !important;
               }
@@ -238,7 +363,14 @@ export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ custom
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
                 box-shadow: none !important;
-                border: 1px solid #d97706 !important;
+                border: 1px solid #f59e0b !important;
+                width: 85.6mm !important;
+                height: 53.98mm !important;
+                min-height: 53.98mm !important;
+                max-width: 85.6mm !important;
+                max-height: 53.98mm !important;
+                padding: 3mm 3.5mm !important;
+                border-radius: 3.18mm !important;
               }
               .no-print {
                 display: none !important;
@@ -252,18 +384,27 @@ export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ custom
         <div className="px-6 py-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-950/60 no-print">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>رمز الـ QR مشفر برقم العضوية فقط للمسح السريع.</span>
+            <span>رمز الـ QR جاهز ومناسب للمسح السريع بكاميرات الهواتف والماسح الضوئي.</span>
           </div>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+          <div className="flex items-center flex-wrap gap-2.5 w-full sm:w-auto justify-end">
             <button
               onClick={handleDownloadQrOnly}
               disabled={!qrDataUrl}
               className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
-              title="تحميل صورة رمز الـ QR بصيغة PNG"
+              title="تحميل رمز الـ QR عالي الدقة بصيغة PNG"
             >
               <Download className="w-3.5 h-3.5" />
               <span>تحميل QR</span>
+            </button>
+            <button
+              onClick={handleDownloadBarcodeOnly}
+              disabled={!barcodeDataUrl}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
+              title="تحميل صورة الباركود بصيغة PNG"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>تحميل الباركود</span>
             </button>
             <button
               onClick={onClose}

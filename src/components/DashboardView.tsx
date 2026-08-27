@@ -128,9 +128,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               النظام متصل محلياً (SQLite)
             </span>
           </div>
-          <h1 className="text-2xl font-black text-white tracking-tight">
-            مرحباً بك في <span className="text-amber-500">PUMP CLUB</span>
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+              <span>مرحباً بك في</span>
+            </h1>
+            <img
+              src="https://i.postimg.cc/zDpJmgGy/1000243171-removebg-preview.png"
+              alt="Pump Club"
+              className="h-8 w-auto max-w-[140px] object-contain drop-shadow"
+              referrerPolicy="no-referrer"
+            />
+          </div>
           <p className="text-xs text-slate-400 mt-1">
             نظام إدارة الاشتراكات وتسجيل الدخول السريع وقاعدة البيانات المحلية على الجهاز.
           </p>

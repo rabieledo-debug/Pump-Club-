@@ -41,15 +41,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       <div className="w-full max-w-md relative z-10">
         {/* Logo Card Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 shadow-xl shadow-amber-500/20 mb-4 ring-4 ring-amber-500/20">
-            <Dumbbell className="w-10 h-10 text-slate-950 font-black" />
-          </div>
-          <h1 className="text-3xl font-black tracking-tight text-white uppercase mb-1">
-            PUMP <span className="text-amber-500">CLUB</span>
-          </h1>
-          <p className="text-sm text-slate-400 font-medium">
-            نظام إدارة الجيم والاشتراكات المحلي
+        <div className="text-center mb-8 flex flex-col items-center">
+          <img
+            src="https://i.postimg.cc/zDpJmgGy/1000243171-removebg-preview.png"
+            alt="Pump Club"
+            className="h-24 sm:h-28 w-auto max-w-[280px] object-contain drop-shadow-2xl mb-2 select-none"
+            referrerPolicy="no-referrer"
+          />
+          <p className="text-xs text-slate-400 font-medium">
+            نظام إدارة الجيم والاشتراكات وتسجيل الدخول الذكي
           </p>
         </div>
 

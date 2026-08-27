@@ -207,18 +207,16 @@ export const MembershipCardModal: React.FC<MembershipCardModalProps> = ({ custom
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400" />
             <div className="absolute inset-0 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px] opacity-[0.03] pointer-events-none" />
 
-            {/* TOP HEADER: Compact PUMP CLUB Logo & VIP MEMBER Badge */}
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 z-10">
-              {/* Gym Brand Logo */}
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-sm">
-                  <Dumbbell className="w-3.5 h-3.5 text-slate-950 font-black" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black text-white uppercase tracking-wider leading-none">
-                    PUMP <span className="text-amber-500">CLUB</span>
-                  </h3>
-                </div>
+            {/* TOP HEADER: Official PUMP CLUB Logo & VIP MEMBER Badge */}
+            <div className="flex items-center justify-between pb-1 border-b border-slate-800/80 z-10">
+              {/* Official Gym Brand Logo */}
+              <div className="flex items-center">
+                <img
+                  src="https://i.postimg.cc/zDpJmgGy/1000243171-removebg-preview.png"
+                  alt="Pump Club"
+                  className="h-7 sm:h-8 w-auto max-w-[125px] object-contain select-none drop-shadow"
+                  referrerPolicy="no-referrer"
+                />
               </div>
 
               {/* VIP MEMBER Badge */}

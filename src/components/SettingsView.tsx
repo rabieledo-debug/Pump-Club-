@@ -75,10 +75,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onRefreshS
   const handleDownloadBackup = () => {
     setBackupLoading(true);
     try {
+      const backupData = api.exportBackup ? api.exportBackup() : '';
+      const blob = new Blob([backupData], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = api.getBackupUrl();
-      a.download = `pumpclub-backup-${new Date().toISOString().split('T')[0]}.db`;
+      a.href = url;
+      a.download = `pumpclub-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
     } finally {
@@ -88,7 +94,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onRefreshS
 
   const handleRestoreBackup = async () => {
     if (!restoreFile) return;
-    if (!window.confirm('تحذير: استعادة نسخة احتياطية سيستبدل قاعدة البيانات الحالية. هل تود المتابعة؟')) {
+    if (!window.confirm('تحذير: استعادة نسخة احتياطية سيستبدل البيانات الحالية بالبيانات المسترجعة. هل تود المتابعة؟')) {
       return;
     }
 
@@ -313,7 +319,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onRefreshS
             <div className="space-y-2">
               <input
                 type="file"
-                accept=".db,.sqlite,.sqlite3"
+                accept=".json,.db,.sqlite,.sqlite3"
                 onChange={(e) => setRestoreFile(e.target.files ? e.target.files[0] : null)}
                 className="w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer"
               />

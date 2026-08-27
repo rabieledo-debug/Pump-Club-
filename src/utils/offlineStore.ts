@@ -12,7 +12,7 @@ import {
   CustomerStatus,
 } from '../types';
 
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   USERS: 'pumpclub_offline_users',
   CUSTOMERS: 'pumpclub_offline_customers',
   COACHES: 'pumpclub_offline_coaches',
@@ -21,6 +21,17 @@ const STORAGE_KEYS = {
   FREEZES: 'pumpclub_offline_freezes',
   SETTINGS: 'pumpclub_offline_settings',
   NOTIFICATIONS: 'pumpclub_offline_notifications',
+};
+
+// Fallback legacy storage keys to guarantee existing data continuity
+const LEGACY_STORAGE_MAP: Record<string, string[]> = {
+  [STORAGE_KEYS.CUSTOMERS]: ['pumpclub_customers', 'gym_customers', 'customers_data', 'customers'],
+  [STORAGE_KEYS.COACHES]: ['pumpclub_coaches', 'coaches_data', 'coaches'],
+  [STORAGE_KEYS.CHECK_INS]: ['pumpclub_checkins', 'checkins_data', 'check_ins'],
+  [STORAGE_KEYS.SUBSCRIPTIONS]: ['pumpclub_subscriptions', 'subscriptions_data', 'subscriptions'],
+  [STORAGE_KEYS.FREEZES]: ['pumpclub_freezes', 'freezes_data', 'freezes'],
+  [STORAGE_KEYS.SETTINGS]: ['pumpclub_settings', 'gym_settings', 'settings'],
+  [STORAGE_KEYS.USERS]: ['pumpclub_users', 'users_data', 'users'],
 };
 
 export interface LocalUser {
@@ -46,31 +57,84 @@ const DEFAULT_SETTINGS: GymSettings = {
     'مرحباً من Pump Club 👋\nنود تذكيرك بأن اشتراكك سينتهي قريباً (خلال {days} أيام).\nجدد اشتراكك الآن لتستمتع بتمارينك بدون انقطاع 🔥',
 };
 
-// Convert File to Base64 data URL
-export function fileToBase64(file: File): Promise<string> {
+// Compress image to ensure it fits comfortably in LocalStorage without quota limits
+export function compressImageFile(file: File, maxWidth = 600, maxHeight = 600, quality = 0.82): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
-function getItem<T>(key: string, defaultValue: T): T {
+// Convert File to Base64 data URL
+export function fileToBase64(file: File): Promise<string> {
+  return compressImageFile(file);
+}
+
+export function getItem<T>(key: string, defaultValue: T): T {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return defaultValue;
-    return JSON.parse(raw) as T;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed !== null && parsed !== undefined) {
+        return parsed as T;
+      }
+    }
+    // Check legacy fallback keys if any
+    const legacyKeys = LEGACY_STORAGE_MAP[key] || [];
+    for (const lk of legacyKeys) {
+      const legacyRaw = localStorage.getItem(lk);
+      if (legacyRaw) {
+        const parsed = JSON.parse(legacyRaw);
+        if (parsed !== null && parsed !== undefined) {
+          // migrate to primary key immediately
+          localStorage.setItem(key, JSON.stringify(parsed));
+          return parsed as T;
+        }
+      }
+    }
+    return defaultValue;
   } catch {
     return defaultValue;
   }
 }
 
-function setItem<T>(key: string, value: T): void {
+export function setItem<T>(key: string, value: T): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    const jsonStr = JSON.stringify(value);
+    localStorage.setItem(key, jsonStr);
   } catch (err) {
-    console.warn(`LocalStorage quota exceeded for key ${key}:`, err);
+    console.warn(`LocalStorage write warning for key ${key}:`, err);
   }
 }
 
@@ -102,7 +166,7 @@ export function computeCustomerStatus(
   }
 }
 
-// Initialize offline store without any fake, demo, or automatic members
+// Initialize offline store safely preserving ALL user-entered customer data
 export function initOfflineStore(): void {
   // 1. Admin User
   const users = getItem<LocalUser[]>(STORAGE_KEYS.USERS, []);
@@ -121,7 +185,6 @@ export function initOfflineStore(): void {
     });
     setItem(STORAGE_KEYS.USERS, users);
   } else if (pumpUser.password_hash !== 'Pump777') {
-    // Keep credentials up to date
     pumpUser.password_hash = 'Pump777';
     setItem(STORAGE_KEYS.USERS, users);
   }
@@ -131,28 +194,9 @@ export function initOfflineStore(): void {
   if (!settings) {
     setItem(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
   }
-
-  // 3. Clean up any legacy demo / sample members if they were auto-seeded
-  const rawCustomers = getItem<Customer[]>(STORAGE_KEYS.CUSTOMERS, []);
-  const demoMembershipIds = ['PUMP-1001', 'PUMP-1002', 'PUMP-1003'];
-  const demoNames = ['طارق حسام الدين', 'كريم عبد العزيز', 'يوسف جمال'];
-  const cleanedCustomers = rawCustomers.filter(
-    (c) => !demoMembershipIds.includes(c.membership_id) && !demoNames.includes(c.full_name)
-  );
-  if (cleanedCustomers.length !== rawCustomers.length) {
-    setItem(STORAGE_KEYS.CUSTOMERS, cleanedCustomers);
-  }
-
-  // 4. Clean up any legacy demo coaches
-  const rawCoaches = getItem<Coach[]>(STORAGE_KEYS.COACHES, []);
-  const demoCoachNames = ['كابتن أحمد علي', 'كابتن مصطفى محمود'];
-  const cleanedCoaches = rawCoaches.filter((c) => !demoCoachNames.includes(c.name));
-  if (cleanedCoaches.length !== rawCoaches.length) {
-    setItem(STORAGE_KEYS.COACHES, cleanedCoaches);
-  }
 }
 
-// Auto-run init on module load
+// Auto-run init safely
 initOfflineStore();
 
 export const offlineStore = {
@@ -232,10 +276,10 @@ export const offlineStore = {
       const q = params.search.trim().toLowerCase();
       list = list.filter(
         (c) =>
-          c.full_name.toLowerCase().includes(q) ||
-          c.phone.includes(q) ||
-          c.barcode.includes(q) ||
-          c.membership_id.toLowerCase().includes(q)
+          c.full_name?.toLowerCase().includes(q) ||
+          c.phone?.includes(q) ||
+          c.barcode?.includes(q) ||
+          c.membership_id?.toLowerCase().includes(q)
       );
     }
 
@@ -251,7 +295,7 @@ export const offlineStore = {
       list = list.filter((c) => Number(c.is_private) === Number(params.is_private));
     }
 
-    list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
     return { customers: list, total: list.length };
   },
@@ -279,17 +323,17 @@ export const offlineStore = {
     const allHistory = getItem<SubscriptionHistoryItem[]>(STORAGE_KEYS.SUBSCRIPTIONS, []);
     const customerHistory = allHistory
       .filter((h) => h.customer_id === id)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
     const allFreezes = getItem<FreezeRecord[]>(STORAGE_KEYS.FREEZES, []);
     const customerFreezes = allFreezes
       .filter((f) => f.customer_id === id)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
     const allCheckIns = getItem<CheckInRecord[]>(STORAGE_KEYS.CHECK_INS, []);
     const customerCheckIns = allCheckIns
       .filter((ci) => ci.customer_id === id)
-      .sort((a, b) => new Date(b.check_in_time).getTime() - new Date(a.check_in_time).getTime());
+      .sort((a, b) => new Date(b.check_in_time || 0).getTime() - new Date(a.check_in_time || 0).getTime());
 
     const enrichedCustomer: Customer = {
       ...c,
@@ -349,16 +393,18 @@ export const offlineStore = {
     // Handle image file if provided
     let imagePath: string | null = null;
     const imageFile = formData.get('image') as File | null;
-    if (imageFile && imageFile.size > 0 && typeof imageFile.name === 'string') {
+    if (imageFile && imageFile instanceof File && imageFile.size > 0 && typeof imageFile.name === 'string') {
       try {
-        imagePath = await fileToBase64(imageFile);
+        imagePath = await compressImageFile(imageFile);
       } catch (e) {
-        console.warn('Failed to convert image to base64:', e);
+        console.warn('Failed to compress image:', e);
       }
+    } else if (typeof formData.get('image_path') === 'string') {
+      imagePath = formData.get('image_path') as string;
     }
 
     // Generate unique ID, membership_id, and barcode
-    const nextId = rawCustomers.reduce((max, c) => Math.max(max, c.id), 0) + 1;
+    const nextId = rawCustomers.reduce((max, c) => Math.max(max, c.id || 0), 0) + 1;
     const membershipId = (formData.get('membership_id') as string) || `PUMP-${1000 + nextId}`;
     const barcode = (formData.get('barcode') as string) || `${100000 + nextId * 100}`;
 
@@ -411,7 +457,7 @@ export const offlineStore = {
     const index = rawCustomers.findIndex((c) => c.id === id);
     if (index === -1) throw new Error('العميل غير موجود');
 
-    const customer = rawCustomers[index];
+    const customer = { ...rawCustomers[index] };
     const now = new Date().toISOString();
 
     const fullName = formData.get('full_name') as string;
@@ -440,11 +486,11 @@ export const offlineStore = {
     if (formData.has('notes')) customer.notes = formData.get('notes') as string;
 
     const imageFile = formData.get('image') as File | null;
-    if (imageFile && imageFile.size > 0 && typeof imageFile.name === 'string') {
+    if (imageFile && imageFile instanceof File && imageFile.size > 0 && typeof imageFile.name === 'string') {
       try {
-        customer.image_path = await fileToBase64(imageFile);
+        customer.image_path = await compressImageFile(imageFile);
       } catch (e) {
-        console.warn('Failed to convert image:', e);
+        console.warn('Failed to compress image:', e);
       }
     }
 
@@ -481,7 +527,7 @@ export const offlineStore = {
     const index = rawCustomers.findIndex((c) => c.id === id);
     if (index === -1) throw new Error('المشترك غير موجود');
 
-    const customer = rawCustomers[index];
+    const customer = { ...rawCustomers[index] };
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
@@ -531,7 +577,7 @@ export const offlineStore = {
     const index = rawCustomers.findIndex((c) => c.id === id);
     if (index === -1) throw new Error('المشترك غير موجود');
 
-    const customer = rawCustomers[index];
+    const customer = { ...rawCustomers[index] };
     const now = new Date().toISOString();
 
     let daysCount = data.days_count || 0;
@@ -593,18 +639,19 @@ export const offlineStore = {
     const settings = getItem<GymSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
     const expiringDays = Number(settings.expiring_soon_days) || 7;
 
-    const trimmed = barcode.trim();
-    const customer = rawCustomers.find(
+    const trimmed = (barcode || '').trim();
+    const customerIndex = rawCustomers.findIndex(
       (c) =>
         c.barcode === trimmed ||
-        c.membership_id.toLowerCase() === trimmed.toLowerCase() ||
+        c.membership_id?.toLowerCase() === trimmed.toLowerCase() ||
         c.phone === trimmed
     );
 
-    if (!customer) {
+    if (customerIndex === -1) {
       throw new Error('لم يتم العثور على أي مشترك بهذا الباركود أو رقم الهاتف');
     }
 
+    const customer = { ...rawCustomers[customerIndex] };
     const { status, daysRemaining } = computeCustomerStatus(customer, expiringDays);
     const nowTime = new Date().toISOString();
 
@@ -643,6 +690,7 @@ export const offlineStore = {
     // Update customer last check in
     customer.last_check_in = nowTime;
     customer.total_check_ins = (customer.total_check_ins || 0) + (granted ? 1 : 0);
+    rawCustomers[customerIndex] = customer;
     setItem(STORAGE_KEYS.CUSTOMERS, rawCustomers);
 
     const coachesMap = new Map(coaches.map((c) => [c.id, c.name]));
@@ -671,7 +719,7 @@ export const offlineStore = {
       const c = custMap.get(ci.customer_id);
       return {
         ...ci,
-        full_name: ci.full_name || c?.full_name || 'مشترك غير معروف',
+        full_name: ci.full_name || c?.full_name || 'مشترك',
         phone: ci.phone || c?.phone || '',
         membership_id: ci.membership_id || c?.membership_id || '',
         image_path: ci.image_path || c?.image_path || undefined,
@@ -686,15 +734,15 @@ export const offlineStore = {
           ci.full_name?.toLowerCase().includes(q) ||
           ci.phone?.includes(q) ||
           ci.membership_id?.toLowerCase().includes(q) ||
-          ci.barcode.includes(q)
+          ci.barcode?.includes(q)
       );
     }
 
     if (params?.date) {
-      list = list.filter((ci) => ci.check_in_time.startsWith(params.date!));
+      list = list.filter((ci) => ci.check_in_time?.startsWith(params.date!));
     }
 
-    list.sort((a, b) => new Date(b.check_in_time).getTime() - new Date(a.check_in_time).getTime());
+    list.sort((a, b) => new Date(b.check_in_time || 0).getTime() - new Date(a.check_in_time || 0).getTime());
 
     if (params?.limit && params.limit > 0) {
       list = list.slice(0, params.limit);
@@ -738,15 +786,15 @@ export const offlineStore = {
 
     let imagePath: string | null = null;
     const imageFile = formData.get('image') as File | null;
-    if (imageFile && imageFile.size > 0 && typeof imageFile.name === 'string') {
+    if (imageFile && imageFile instanceof File && imageFile.size > 0 && typeof imageFile.name === 'string') {
       try {
-        imagePath = await fileToBase64(imageFile);
+        imagePath = await compressImageFile(imageFile);
       } catch (e) {
-        console.warn('Failed to convert coach image:', e);
+        console.warn('Failed to compress coach image:', e);
       }
     }
 
-    const nextId = rawCoaches.reduce((max, c) => Math.max(max, c.id), 0) + 1;
+    const nextId = rawCoaches.reduce((max, c) => Math.max(max, c.id || 0), 0) + 1;
     const newCoach: Coach = {
       id: nextId,
       name,
@@ -769,7 +817,7 @@ export const offlineStore = {
     const index = rawCoaches.findIndex((c) => c.id === id);
     if (index === -1) throw new Error('المدرب غير موجود');
 
-    const coach = rawCoaches[index];
+    const coach = { ...rawCoaches[index] };
     const name = formData.get('name') as string;
     if (name) coach.name = name.trim();
     if (formData.has('phone')) coach.phone = (formData.get('phone') as string)?.trim() || null;
@@ -778,11 +826,11 @@ export const offlineStore = {
     if (formData.has('active')) coach.active = parseInt(formData.get('active') as string, 10) || 1;
 
     const imageFile = formData.get('image') as File | null;
-    if (imageFile && imageFile.size > 0 && typeof imageFile.name === 'string') {
+    if (imageFile && imageFile instanceof File && imageFile.size > 0 && typeof imageFile.name === 'string') {
       try {
-        coach.image_path = await fileToBase64(imageFile);
+        coach.image_path = await compressImageFile(imageFile);
       } catch (e) {
-        console.warn('Failed to convert coach image:', e);
+        console.warn('Failed to compress coach image:', e);
       }
     }
 
@@ -811,7 +859,7 @@ export const offlineStore = {
     const allCheckIns = getItem<CheckInRecord[]>(STORAGE_KEYS.CHECK_INS, []);
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const todayCheckIns = allCheckIns.filter((ci) => ci.check_in_time.startsWith(todayStr) && ci.status === 'granted');
+    const todayCheckIns = allCheckIns.filter((ci) => ci.check_in_time?.startsWith(todayStr) && ci.status === 'granted');
 
     const activeList = customers.filter((c) => c.status === 'active');
     const expiringSoonList = customers.filter((c) => c.status === 'expiring_soon');
@@ -876,7 +924,7 @@ export const offlineStore = {
       const dateStr = d.toISOString().split('T')[0];
       const dayLabel = d.toLocaleDateString('ar-EG', { weekday: 'short' });
       const checkInsCount = allCheckIns.filter(
-        (ci) => ci.check_in_time.startsWith(dateStr) && ci.status === 'granted'
+        (ci) => ci.check_in_time?.startsWith(dateStr) && ci.status === 'granted'
       ).length;
 
       dailyTrend.push({
@@ -939,7 +987,7 @@ export const offlineStore = {
     };
   },
 
-  markNotificationsRead: async () => ({ success: true }),
+  markNotificationsRead: async (_id?: number) => ({ success: true }),
   clearNotifications: async () => ({ success: true }),
 
   // 9. System & Backup
@@ -948,14 +996,21 @@ export const offlineStore = {
     const rawCoaches = getItem<Coach[]>(STORAGE_KEYS.COACHES, []);
     const rawCheckIns = getItem<CheckInRecord[]>(STORAGE_KEYS.CHECK_INS, []);
 
+    let totalStorageBytes = 0;
+    try {
+      totalStorageBytes = new Blob(Object.values(localStorage)).size;
+    } catch {
+      totalStorageBytes = JSON.stringify(localStorage).length;
+    }
+
     return {
-      db_path: 'LocalStorage / Offline Indexed Store (Local Client)',
-      db_size_kb: Math.round(JSON.stringify(localStorage).length / 1024),
+      db_path: 'متصفح الجهاز المحلي (Local Storage Persistence)',
+      db_size_kb: Math.round(totalStorageBytes / 1024),
       customers_count: rawCustomers.length,
       check_ins_count: rawCheckIns.length,
       coaches_count: rawCoaches.length,
       offline_ready: true,
-      storage_type: 'Offline Local SQLite / Browser Storage',
+      storage_type: 'Local Browser Storage (دائم على الجهاز)',
     };
   },
 
